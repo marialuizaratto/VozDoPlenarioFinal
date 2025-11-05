@@ -1,0 +1,17 @@
+# Python "Bolha" (O MAIS IMPORTANTE!)
+venv/
+
+# Nossas "Geladeiras" (Cache não vai pro Git!)
+cache_geral/
+cache_perfis/
+cache_partidos/
+
+# Python "Lixo" Temporário
+__pycache__/
+
+# ARQUIVO DE SENHAS (NUNCA SUBIR!)
+.env
+
+# Lixo do OS
+.DS_Store
+*.pyc
