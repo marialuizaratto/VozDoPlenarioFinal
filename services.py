@@ -170,7 +170,7 @@ Retorne um objeto JSON com as seguintes chaves:
                     "content": prompt,
                 }
             ],
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             temperature=0.2,
             max_tokens=2048, # Increased token limit for more detailed analysis
             response_format={"type": "json_object"},
