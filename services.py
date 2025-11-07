@@ -117,8 +117,8 @@ def analyze_speeches_with_groq(speeches: list, deputy_info: dict):
     ])
 
     # Truncate if too long to avoid API errors
-    if len(speeches_text) > 25000: # Increased limit for more context
-        speeches_text = speeches_text[:25000] + "\n\n... (discursos truncados para análise)"
+    if len(speeches_text) > 20000: # Reduced limit to avoid rate limit errors
+        speeches_text = speeches_text[:20000] + "\n\n... (discursos truncados para análise)"
 
     # Construct the biography string
     bio = (
