@@ -72,7 +72,7 @@ async def fetch_data(url: str):
             logging.error(f"HTTP error fetching data from {url}: {e.response.status_code}")
             raise HTTPException(status_code=e.response.status_code, detail=f"Failed to fetch data from external API: {e.response.text}")
         except Exception as e:
-            logging.error(f"An unexpected error occurred when fetching data from {url} - Details: {e}")
+            logging.error(f"An unexpected error occurred when fetching data from {url} - Type: {type(e).__name__} - Details: {repr(e)}")
             raise HTTPException(status_code=500, detail="An internal error occurred while fetching external data.")
 
 def generate_wordcloud(text: str, filepath: str):
