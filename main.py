@@ -8,6 +8,10 @@ from services import (
     get_deputies_by_party,
     get_speeches_by_party,
     get_party_details_and_generate_wordcloud,
+    analyze_speeches_with_groq,
+    get_deputy_by_id,
+    get_deputy_ranking,
+    get_party_activity_ranking,
 )
 import logging
 from datetime import datetime, timedelta
@@ -90,8 +94,114 @@ def get_wordcloud_partido(sigla: str):
     else:
         raise HTTPException(status_code=404, detail="Wordcloud could not be generated.")
 
+@app.get("/analise/{deputy_id}")
+def analise_deputado(
+    deputy_id: int,
+    data_inicio: str = Query(None),
+    data_fim: str = Query(None),
+):
+    """
+    Endpoint para análise de discursos de um deputado usando a API da Groq.
+    """
+    try:
+        # 1. Obter os detalhes do deputado
+        deputy_info = get_deputy_by_id(deputy_id)
+        if not deputy_info:
+            raise HTTPException(status_code=404, detail="Deputado não encontrado.")
+
+        # 2. Obter os discursos do deputado
+        speeches = get_deputy_speeches(deputy_id, data_inicio, data_fim)
+        
+        # 3. Enviar para análise da Groq
+        analysis = analyze_speeches_with_groq(speeches, deputy_info)
+        
+        return analysis
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logging.error(f"Erro na análise do deputado {deputy_id}: {e}")
+        raise HTTPException(status_code=500, detail="Erro interno ao processar a análise.")
+
+
+
+# --- Ranking Endpoints ---
+
+
+
+@app.get("/ranking/deputados/mais-falam")
+
+def get_ranking_deputados_mais_falam():
+
+    """
+
+    Retorna um ranking dos 50 deputados que mais fizeram discursos.
+
+    """
+
+    try:
+
+        return get_deputy_ranking(order='most')
+
+    except Exception as e:
+
+        logging.error(f"Erro ao gerar ranking de deputados que mais falam: {e}")
+
+        raise HTTPException(status_code=500, detail="Erro interno ao gerar ranking.")
+
+
+
+@app.get("/ranking/deputados/menos-falam")
+
+def get_ranking_deputados_menos_falam():
+
+    """
+
+    Retorna um ranking dos 50 deputados que menos fizeram discursos.
+
+    """
+
+    try:
+
+        return get_deputy_ranking(order='least')
+
+    except Exception as e:
+
+        logging.error(f"Erro ao gerar ranking de deputados que menos falam: {e}")
+
+        raise HTTPException(status_code=500, detail="Erro interno ao gerar ranking.")
+
+
+
+@app.get("/ranking/partidos/mais-ativos")
+
+def get_ranking_partidos_mais_ativos():
+
+    """
+
+    Retorna um ranking de partidos por atividade proporcional (média de discursos por deputado).
+
+    """
+
+    try:
+
+        return get_party_activity_ranking()
+
+    except Exception as e:
+
+        logging.error(f"Erro ao gerar ranking de partidos: {e}")
+
+        raise HTTPException(status_code=500, detail="Erro interno ao gerar ranking.")
+
+
+
+
+
 # Main execution for local development
+
 if __name__ == "__main__":
+
     import uvicorn
+
     # Use the standard port 8000 for local dev
+
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
