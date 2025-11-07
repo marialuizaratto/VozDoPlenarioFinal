@@ -21,22 +21,21 @@ async def test_analyze_deputy_speeches_integration(client: AsyncClient):
     Testa o endpoint de análise de discursos com uma chamada real à API Groq.
     Este teste depende de uma chave de API válida no arquivo .env.
     """
-    # Parâmetros para a análise, se necessário (ex: datas)
     params = {
         "data_inicio": "2024-01-01",
         "data_fim": "2024-03-31"
     }
     
-    response = await client.get(f"/deputados/{DEPUTY_ID_FOR_TEST}/analise", params=params)
+    response = await client.get(f"/analise/{DEPUTY_ID_FOR_TEST}", params=params)
     
     assert response.status_code == 200
     
     json_response = response.json()
     
-    # Verifica se a resposta contém a chave 'analise' e se não está vazia
-    assert "analise" in json_response
-    assert isinstance(json_response["analise"], str)
-    assert len(json_response["analise"]) > 20  # Espera-se uma análise com algum conteúdo
+    # Verifica se a resposta contém a chave 'analysis' e se não está vazia
+    assert "analysis" in json_response
+    assert isinstance(json_response["analysis"], str)
+    assert len(json_response["analysis"]) > 20  # Espera-se uma análise com algum conteúdo
 
     # Opcional: Imprime a análise para verificação manual durante o teste
-    print(f"Análise da IA: {json_response['analise']}")
+    print(f"Análise da IA: {json_response['analysis']}")

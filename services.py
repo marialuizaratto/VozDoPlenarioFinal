@@ -81,6 +81,7 @@ def generate_wordcloud(text: str, filepath: str):
         logging.warning("Text for word cloud is empty. Skipping generation.")
         return
     try:
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         wordcloud = WordCloud(width=800, height=400, background_color='white', stopwords=stop_words).generate(text)
         plt.figure(figsize=(10, 5))
         plt.imshow(wordcloud, interpolation='bilinear')
@@ -149,22 +150,76 @@ async def get_all_deputies():
     return all_deputies
 
 async def get_deputy_speeches(deputy_id: int, data_inicio: str, data_fim: str):
+
     """Fetches speeches for a given deputy within a date range."""
+
     url = f"https://dadosabertos.camara.leg.br/api/v2/deputados/{deputy_id}/discursos?dataInicio={data_inicio}&dataFim={data_fim}&ordenarPor=dataHoraInicio&ordem=ASC"
+
     all_speeches = []
+
     page = 1
+
     while True:
+
         try:
+
             response = await fetch_data(f"{url}&pagina={page}&itens=100")
+
             speeches = response.get("dados", [])
+
             if not speeches:
+
                 break
+
             all_speeches.extend(speeches)
+
             page += 1
+
         except HTTPException as e:
+
             logging.error(f"Error fetching page {page} of speeches for deputy {deputy_id}: {e.detail}")
+
             break
+
     return all_speeches
+
+
+
+
+
+async def get_deputies_by_party(sigla: str):
+    """Fetches a list of all deputies from a specific party."""
+    all_deputies = await get_all_deputies()
+    filtered_deputies = []
+    for deputy in all_deputies:
+        if deputy.get('siglaPartido') and deputy['siglaPartido'].upper() == sigla.upper():
+            filtered_deputies.append(deputy)
+    if not filtered_deputies:
+        raise HTTPException(status_code=404, detail=f"No deputies found for party '{sigla}'.")
+    return filtered_deputies
+
+
+
+
+
+async def get_speeches_by_party(sigla: str, data_inicio: str, data_fim: str):
+
+    """Fetches speeches from all deputies of a specific party within a date range."""
+
+    deputies = await get_deputies_by_party(sigla)
+
+    all_speeches = []
+
+    for deputy in deputies:
+
+        speeches = await get_deputy_speeches(deputy['id'], data_inicio, data_fim)
+
+        all_speeches.extend(speeches)
+
+    return all_speeches
+
+
+
 
 
 
@@ -297,6 +352,12 @@ async def analyze_deputy_profile(deputy_id: int):
     data_inicio = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
     speeches = await get_deputy_speeches(deputy_id, data_inicio, data_fim)
 
+    # If no speeches in the last 2 years, try from the beginning of the 56th legislature
+    if not speeches:
+        logging.info(f"No speeches found for deputy {deputy_id} in the last 2 years. Trying a wider date range.")
+        data_inicio = "2019-02-01"
+        speeches = await get_deputy_speeches(deputy_id, data_inicio, data_fim)
+
     try:
         deputy_data = await fetch_data(deputy_url)
     except HTTPException as e:
@@ -304,10 +365,27 @@ async def analyze_deputy_profile(deputy_id: int):
 
     # 2. Consolidate data
     deputy_info = deputy_data.get("dados", {})
-    speech_summaries = [s.get('resumo') for s in speeches if s.get('resumo')]
+    speech_contents = [s.get('resumo') or s.get('transcricao') for s in speeches if s.get('resumo') or s.get('transcricao')]
 
-    if not speech_summaries:
-        return {"analysis": "Análise não pôde ser gerada: Não foram encontrados discursos com resumos para este parlamentar no período analisado."}
+    if not speech_contents:
+        return {"analysis": "Análise não pôde ser gerada: Não foram encontrados discursos ou transcrições para este parlamentar no período analisado."}
+
+    # Dinamicamente limita o número de discursos para evitar exceder o limite de tokens
+    limited_speech_contents = []
+    current_char_count = 0
+    # Um limite seguro para o conteúdo dos discursos, para não estourar o limite de tokens do prompt
+    CHAR_LIMIT = 28000  
+
+    for speech in speech_contents:
+        # Adiciona o tamanho do discurso atual ao contador
+        current_char_count += len(speech)
+        
+        # Se o limite for excedido, para de adicionar discursos
+        if current_char_count > CHAR_LIMIT:
+            break
+        
+        # Adiciona o discurso à lista
+        limited_speech_contents.append(speech)
 
     # 3. Prepare the prompt for the LLM
     prompt_text = f'''
@@ -321,23 +399,23 @@ async def analyze_deputy_profile(deputy_id: int):
 
     **Dados para Análise:**
 
-    1.  **Trechos de Discursos (resumos):**
-        {json.dumps(speech_summaries, indent=2, ensure_ascii=False)}
+    1.  **Trechos de Discursos (resumos ou transcrições):**
+        {json.dumps(limited_speech_contents, indent=2, ensure_ascii=False)}
 
     **Estrutura da Análise (Siga este formato OBRIGATORIAMENTE):**
 
     1.  **Biografia:** (Gere uma pequena biografia de 2-3 linhas sobre o deputado, mencionando seu nome, partido e estado de representação.)
 
-    2.  **Análise de Tópicos (Top 5):** (Com base nos resumos dos discursos fornecidos, identifique e liste os 5 temas mais recorrentes na fala do parlamentar. Apresente como um ranking.)
+    2.  **Análise de Tópicos (Top 5):** (Com base nos resumos/transcrições dos discursos fornecidos, identifique e liste os 5 temas mais recorrentes na fala do parlamentar. Apresente como um ranking.)
 
-    3.  **Análise de Tom e Sentimento:** (Seja crítico e isento. Analise o tom geral dos discursos. O parlamentar adota uma postura mais conciliadora ou de oposição? Use trechos curtos dos resumos dos discursos para exemplificar e provar seu ponto. Por exemplo: 'Ao discutir o tema X, o deputado afirmou: "[trecho do resumo]", o que demonstra uma postura Y.')
+    3.  **Análise de Tom e Sentimento:** (Seja crítico e isento. Analise o tom geral dos discursos. O parlamentar adota uma postura mais conciliadora ou de oposição? Use trechos curtos dos resumos/transcrições dos discursos para exemplificar e provar seu ponto. Por exemplo: 'Ao discutir o tema X, o deputado afirmou: "[trecho do resumo/transcrição]", o que demonstra uma postura Y.')
 
-    4.  **Nível de Toxicidade (0 a 100):** (Com base na linguagem usada nos resumos, atribua uma pontuação de 0 a 100, onde 0 é "totalmente neutro e respeitoso" e 100 é "extremamente tóxico e desrespeitoso". Justifique a pontuação com base em exemplos.)
+    4.  **Nível de Toxicidade (0 a 100):** (Com base na linguagem usada nos resumos/transcrições, atribua uma pontuação de 0 a 100, onde 0 é "totalmente neutro e respeitoso" e 100 é "extremamente tóxico e desrespeitoso". Justifique a pontuação com base em exemplos.)
 
     **Importante:**
-    - **Seja Crítico e Isento:** A análise deve ser crítica, mas não elogiosa demais. Evite opiniões pessoais e viés ideológico.
-    - **Base em Dados:** Fundamente TODA a sua análise nos resumos de discursos fornecidos. Não invente informações.
-    - **Use Exemplos:** É obrigatório o uso de trechos dos resumos para justificar a análise de tom e a pontuação de toxicidade.
+    - **Seja Crítico e Isento:** A análise deve ser crítica, mas não elogiosa demais. Evite opiniões pessoais e viés ideologia.
+    - **Base em Dados:** Fundamente TODA a sua análise nos resumos/transcrições de discursos fornecidos. Não invente informações.
+    - **Use Exemplos:** É obrigatório o uso de trechos dos resumos/transcrições para justificar a análise de tom e a pontuação de toxicidade.
     '''
 
     # 4. Call the LLM
@@ -352,7 +430,7 @@ async def analyze_deputy_profile(deputy_id: int):
             logging.info(f"Attempt {attempt + 1}/{max_retries}: Calling Groq API with key index {current_key_index -1}")
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt_text}],
-                model="llama3-70b-8192",
+                model="llama-3.3-70b-versatile",
             )
             analysis_content = chat_completion.choices[0].message.content
             logging.info(f"Successfully generated analysis for deputy {deputy_id}")

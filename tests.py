@@ -394,12 +394,5 @@ def run_all_tests():
 
 
 if __name__ == "__main__":
-    print("\n⚙️  Certifique-se de que a API está rodando em http://localhost:8000")
-    print("   Execute: uvicorn main:app --reload")
-
-    input("\n⏎  Pressione ENTER para iniciar os testes...")
-
     results = run_all_tests()
-
-    # Código de saída baseado nos resultados
     sys.exit(0 if results['failed'] == 0 else 1)
