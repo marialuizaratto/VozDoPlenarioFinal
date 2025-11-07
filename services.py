@@ -60,9 +60,9 @@ def get_groq_client():
 
 async def fetch_data(url: str):
     """Fetches data from a given URL with retry logic."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=False) as client:
         try:
-            response = await client.get(url, timeout=30.0, verify=False)
+            response = await client.get(url, timeout=30.0)
             response.raise_for_status()
             return response.json()
         except httpx.ReadTimeout:
