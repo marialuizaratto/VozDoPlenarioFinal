@@ -90,7 +90,7 @@ def generate_wordcloud(text: str, filepath: str):
 
 def analyze_speeches_with_groq(speeches: list, deputy_info: dict):
     """
-    Analyzes a list of speeches using the Groq API with a detailed prompt.
+    Analyzes a list of speeches using the Groq API with a detailed, professional prompt.
     """
     if not GROQ_API_KEYS:
         raise HTTPException(status_code=503, detail="Serviço de análise indisponível. Nenhuma chave de API configurada.")
@@ -102,7 +102,10 @@ def analyze_speeches_with_groq(speeches: list, deputy_info: dict):
             "ranking_topicos": [],
             "analise_detalhada": "Nenhum discurso encontrado para o período selecionado, portanto não há análise a ser feita.",
             "tema_principal": "N/A",
-            "nivel_toxicidade": 0
+            "analise_comportamento": {
+                "nivel_toxicidade": 0,
+                "justificativa_toxicidade": "Nenhum discurso para analisar."
+            }
         }
 
     # Prepare the speeches text
@@ -114,8 +117,8 @@ def analyze_speeches_with_groq(speeches: list, deputy_info: dict):
     ])
 
     # Truncate if too long to avoid API errors
-    if len(speeches_text) > 20000:
-        speeches_text = speeches_text[:20000] + "\n\n... (discursos truncados para análise)"
+    if len(speeches_text) > 25000: # Increased limit for more context
+        speeches_text = speeches_text[:25000] + "\n\n... (discursos truncados para análise)"
 
     # Construct the biography string
     bio = (
@@ -125,35 +128,37 @@ def analyze_speeches_with_groq(speeches: list, deputy_info: dict):
     )
 
     prompt = f"""
-"Você é um analista político sênior, encarregado de redigir uma análise imparcial e detalhada sobre a atuação de um deputado federal com base em seus discursos. Sua análise deve ser completamente neutra, focada em fatos e evidências, evitando elogios ou insultos.
+"Você é um analista político sênior, altamente experiente e com um olhar crítico. Sua tarefa é redigir uma análise aprofundada, longa e profissional sobre a atuação de um deputado federal, baseada exclusivamente em seus discursos. A neutralidade é imperativa; sua análise deve ser factual, desprovida de qualquer viés, elogio ou insulto.
 
-**Instruções Detalhadas:**
+**Instruções Mandatórias:**
 
-1.  **Biografia Inicial:** Com base nos dados a seguir, escreva uma biografia curta e esclarecedora sobre o deputado.
+1.  **Biografia Concisa:** Inicie com uma biografia curta e informativa sobre o deputado, utilizando os dados fornecidos.
     *   **Dados do Deputado:** {bio}
 
-2.  **Nível de Atividade:** Com base no volume de discursos fornecidos, comente brevemente sobre o nível de atividade do deputado no plenário (ex: 'Alto', 'Médio', 'Baixo').
+2.  **Nível de Atividade:** Com base no volume de discursos fornecidos, classifique o nível de atividade do deputado em plenário ('Alto', 'Médio' ou 'Baixo') e comente brevemente.
 
-3.  **Ranking de Tópicos:** Crie um ranking dos 5 tópicos mais abordados pelo deputado nos discursos.
+3.  **Ranking de Tópicos (Top 5):** Identifique e liste, em ordem de recorrência, os 5 principais temas abordados pelo deputado.
 
-4.  **Análise Aprofundada:**
-    *   Para cada um dos tópicos do ranking, descreva a posição do deputado.
-    *   **Use exemplos diretos dos discursos (citações curtas) para justificar cada ponto da sua análise.**
-    *   Identifique se há um tema de maior destaque ou especialidade para o parlamentar (ex: educação, direitos humanos, agronegócio).
+4.  **Análise Detalhada e Extensa:** Esta é a parte principal. Elabore uma análise longa e detalhada sobre o posicionamento do deputado:
+    *   Discorra sobre cada um dos 5 tópicos do ranking.
+    *   **Para CADA tópico, inclua múltiplos trechos curtos e diretos dos discursos que justifiquem e exemplifiquem sua análise.**
+    *   Identifique o tema de maior destaque ou especialidade do parlamentar.
 
-5.  **Nível de Toxicidade:**
-    *   No final da análise, atribua um 'nível de toxicidade' de 1 a 100.
+5.  **Análise de Comportamento e Toxicidade:**
+    *   Avalie o comportamento do deputado em relação aos seus colegas e oponentes políticos. Verifique se há uso de linguagem agressiva, insultos diretos, ironias ou ataques pessoais.
+    *   Atribua um **'nivel_toxicidade'** de 0 a 100, onde 0 é totalmente respeitoso e 100 é extremamente tóxico.
+    *   Forneça uma **'justificativa_toxicidade'** detalhada para a pontuação, citando exemplos dos discursos que comprovem sua avaliação.
     *   **Critério de Toxicidade:** A pontuação deve se basear em linguagem agressiva, ataques pessoais, desinformação ou retórica inflamatória. **Ignore completamente formalidades e polidez** (como 'obrigado', 'senhor', 'senhora') na contagem de toxicidade.
 
 **Formato de Saída OBRIGATÓRIO (JSON Válido):**
 
-Retorne um objeto JSON com as seguintes chaves:
+Retorne um objeto JSON com a seguinte estrutura:
 - `biografia`: (string)
 - `nivel_atividade`: (string)
-- `ranking_topicos`: (array de strings)
-- `analise_detalhada`: (string com a análise aprofundada e citações)
+- `ranking_topicos`: (array de 5 strings)
+- `analise_detalhada`: (string longa e detalhada)
 - `tema_principal`: (string)
-- `nivel_toxicidade`: (integer de 1 a 100)
+- `analise_comportamento`: (objeto contendo `nivel_toxicidade` e `justificativa_toxicidade`)
 
 **Discursos para Análise:**
 {speeches_text}
@@ -172,7 +177,7 @@ Retorne um objeto JSON com as seguintes chaves:
             ],
             model="llama-3.1-8b-instant",
             temperature=0.2,
-            max_tokens=2048, # Increased token limit for more detailed analysis
+            max_tokens=4096, # Increased token limit for a longer and more detailed analysis
             response_format={"type": "json_object"},
         )
 
