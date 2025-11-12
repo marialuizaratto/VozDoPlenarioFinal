@@ -8,7 +8,7 @@ from collections import Counter
 import nltk
 from nltk.corpus import stopwords
 from fastapi import HTTPException
-from datetime import datetime
+from datetime import datetime, timedelta
 import groq
 from dotenv import load_dotenv
 import itertools
@@ -44,6 +44,10 @@ except LookupError:
     nltk.download('stopwords')
 
 stop_words = set(stopwords.words('portuguese'))
+
+# --- Date Filter Setup ---
+END_DATE = datetime.now()
+START_DATE = END_DATE - timedelta(days=45)
 
 # --- Helper Functions ---
 
