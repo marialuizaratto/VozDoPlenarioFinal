@@ -11,4 +11,4 @@ A API terá as seguintes funções:
 3: Fazer uma nuvem de palavras a partir de todos os discursos de um deputado
 4: Fazer uma nuvem de palavras a partir de todos os discursos de um partido
 
-
+> Malu Ratto
