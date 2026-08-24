@@ -13,7 +13,10 @@ import json
 import time
 
 
-# Inicializa as stopwords do NLTK
+# Cache interno das stopwords (carregado sob demanda, não na importação do módulo)
+_STOPWORDS_PT: Set[str] = None
+
+
 def _get_stopwords() -> Set[str]:
     """
     Obtém as stopwords em português do NLTK
@@ -53,8 +56,16 @@ def _get_stopwords() -> Set[str]:
     return stopwords_set
 
 
-# Carrega as stopwords uma vez no início
-STOPWORDS_PT = _get_stopwords()
+def get_stopwords_pt() -> Set[str]:
+    """
+    Retorna as stopwords em português, carregando (e baixando, se preciso)
+    apenas na primeira vez que forem usadas. Evita atraso na inicialização
+    do servidor (importante para o health check do Render).
+    """
+    global _STOPWORDS_PT
+    if _STOPWORDS_PT is None:
+        _STOPWORDS_PT = _get_stopwords()
+    return _STOPWORDS_PT
 
 
 def clean_text(text: str) -> str:
@@ -117,12 +128,12 @@ def generate_wordcloud_image(text: str, width: int = 800, height: int = 600) -> 
         buf.seek(0)
         return buf.read()
 
-    # Gera a nuvem de palavras
+    # Gera a nuvem de palavras (stopwords carregadas sob demanda aqui)
     wordcloud = WordCloud(
         width=width,
         height=height,
         background_color='white',
-        stopwords=STOPWORDS_PT,
+        stopwords=get_stopwords_pt(),
         max_words=200,
         relative_scaling=0.5,
         min_font_size=10,
