@@ -30,7 +30,25 @@ def _get_stop_words():
         except LookupError:
             nltk.download('stopwords')
         from nltk.corpus import stopwords
-        _stop_words = set(stopwords.words('portuguese'))
+        base_stopwords = set(stopwords.words('portuguese'))
+
+        # Palavras comuns em discursos parlamentares que não agregam
+        # significado à nuvem de palavras (jargão, formalidades, verbos
+        # genéricos, etc.)
+        additional_stopwords = {
+            'obrigado', 'obrigada', 'presidente', 'senhor', 'senhora', 'sr', 'sra',
+            'deputado', 'deputada', 'excelência', 'vossa', 'câmara', 'casa',
+            'ele', 'ela', 'eles', 'elas', 'hoje', 'governo', 'menos', 'mais',
+            'ano', 'anos', 'ordem', 'orador', 'oradora', 'vai', 'vão', 'foi',
+            'foram', 'pessoa', 'pessoas', 'fazer', 'porque', 'acho', 'acha',
+            'sim', 'não', 'nao', 'aqui', 'agora', 'ontem', 'vez', 'vezes',
+            'ser', 'estar', 'ter', 'poder', 'querer', 'ir', 'sobre', 'ainda',
+            'até', 'entre', 'sem', 'isso', 'só', 'pode', 'bem', 'assim',
+            'então', 'muito', 'muita', 'muitos', 'muitas', 'toda', 'todo',
+            'todas', 'todos', 'nós', 'aquele', 'aquela', 'aqueles', 'aquelas',
+        }
+
+        _stop_words = base_stopwords | additional_stopwords
     return _stop_words
 
 # --- Date Filter Setup ---
@@ -73,11 +91,15 @@ def read_csv_data(filepath: str):
 
 def generate_wordcloud(text: str, filepath: str):
     """Generates and saves a word cloud image from text."""
-    if not text:
+    if not text or not text.strip():
         logging.warning("Text for word cloud is empty. Skipping generation.")
         # Create a placeholder image indicating no data
         plt.figure(figsize=(10, 5))
-        plt.text(0.5, 0.5, "Sem dados para gerar a nuvem de palavras", ha='center', va='center')
+        plt.text(
+            0.5, 0.5,
+            "Este(a) deputado(a) não possui discursos registrados\nno período analisado.",
+            ha='center', va='center', fontsize=14, wrap=True
+        )
         plt.axis('off')
         plt.savefig(filepath)
         plt.close()
