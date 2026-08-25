@@ -299,6 +299,28 @@ def get_party_activity_ranking():
 
 # --- AI Analysis (Groq) ---
 
+def _get_topic_ranking_from_speeches(speeches: list) -> list:
+    """
+    Monta um ranking dos tópicos/assuntos mais frequentes em uma lista de
+    discursos, com base na coluna 'keywords' (palavras-chave) de cada um.
+    """
+    topic_counter = Counter()
+    for speech in speeches:
+        keywords_raw = speech.get('keywords', '') or ''
+        parts = [
+            p.strip()
+            for p in keywords_raw.replace(';', ',').split(',')
+            if p.strip()
+        ]
+        for topic in parts:
+            topic_counter[topic.title()] += 1
+
+    return [
+        {"topico": topico, "quantidade": quantidade}
+        for topico, quantidade in topic_counter.most_common(10)
+    ]
+
+
 def analyze_deputy_profile(deputy_id: int) -> dict:
     """
     Gera uma análise em texto do perfil de um deputado com base nos seus
@@ -343,17 +365,17 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
         f"e responda EXCLUSIVAMENTE com um objeto JSON válido (sem markdown, sem texto fora do JSON), "
         f"seguindo exatamente este formato:\n\n"
         f'{{\n'
-        f'  "analise": "texto corrido, em até 180 palavras, que descreva os temas/assuntos mais '
-        f'frequentes abordados nos discursos e o tom geral (linguagem formal, agressiva, respeitosa, '
-        f'uso de palavrões, etc.)",\n'
-        f'  "nota_toxicidade": número inteiro de 0 a 100\n'
+        f'  "analise": "texto corrido único, em até 200 palavras"\n'
         f'}}\n\n'
+        f"O texto de \"analise\" deve, nesta ordem:\n"
+        f"1. Citar os temas/assuntos mais recorrentes nos discursos.\n"
+        f"2. Comentar o tom geral da fala (formal, agressivo, respeitoso, uso de linguagem informal "
+        f"ou palavrões, etc.).\n"
+        f"3. Terminar com uma frase no formato: \"Nível de toxicidade: X/100\", onde X é um número "
+        f"inteiro de 0 a 100 (0 = discurso sempre respeitoso e institucional; 100 = extremamente "
+        f"agressivo, ofensivo ou desrespeitoso). Avalie o TOM, não a posição política, e inclua uma "
+        f"breve justificativa dessa nota na mesma frase.\n\n"
         f"Regras importantes:\n"
-        f"- \"analise\": comece citando os temas/assuntos mais recorrentes nos discursos, depois comente "
-        f"o tom geral da fala (formal, agressivo, respeitoso, uso de linguagem informal ou palavrões, etc.).\n"
-        f"- \"nota_toxicidade\": 0 = discurso sempre respeitoso e institucional; 100 = extremamente agressivo, "
-        f"ofensivo ou desrespeitoso. Avalie o TOM (agressividade, ataques pessoais, desrespeito, uso de "
-        f"palavrões), não a posição política.\n"
         f"- Não invente informações que não estejam nos textos abaixo.\n"
         f"- Seja imparcial: não julgue o mérito político, apenas o conteúdo e o tom.\n\n"
         f"Discursos:\n{texto_discursos}"
@@ -405,6 +427,8 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
             detail="Análise de IA não disponível no momento."
         )
 
+    ranking_topicos = _get_topic_ranking_from_speeches(recent_speeches)
+
     # Tenta interpretar a resposta como JSON estruturado. Se o modelo não
     # seguir o formato pedido por algum motivo, cai num formato de texto simples.
     import json as _json
@@ -415,7 +439,7 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
             "nome": deputy_details.get('nome'),
             "siglaPartido": deputy_details.get('siglaPartido'),
             "analise": analise_json.get("analise", ""),
-            "nota_toxicidade": analise_json.get("nota_toxicidade"),
+            "ranking_topicos": ranking_topicos,
             "baseada_em_discursos": len(recent_speeches),
         }
     except (ValueError, AttributeError):
@@ -425,7 +449,7 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
             "nome": deputy_details.get('nome'),
             "siglaPartido": deputy_details.get('siglaPartido'),
             "analise": analise_texto,
-            "nota_toxicidade": None,
+            "ranking_topicos": ranking_topicos,
             "baseada_em_discursos": len(recent_speeches),
         }
 
