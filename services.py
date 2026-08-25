@@ -1,4 +1,3 @@
-
 import os
 import csv
 import logging
@@ -6,9 +5,9 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 from collections import Counter
 import nltk
-from nltk.corpus import stopwords
 from fastapi import HTTPException
 from datetime import datetime, timedelta
+import httpx
 
 # --- Setup ---
 logging.basicConfig(level=logging.INFO)
@@ -17,17 +16,31 @@ DATA_DIR = "csv_data"
 DEPUTIES_FILE = os.path.join(DATA_DIR, "deputados.csv")
 SPEECHES_FILE = os.path.join(DATA_DIR, "discursos.csv")
 
-# NLTK setup
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords')
+# Cache interno das stopwords (carregado sob demanda, não na importação do módulo).
+# Isso evita atraso na inicialização do servidor, que pode fazer o health check
+# do Render falhar caso o download do NLTK demore.
+_stop_words = None
 
-stop_words = set(stopwords.words('portuguese'))
+
+def _get_stop_words():
+    global _stop_words
+    if _stop_words is None:
+        try:
+            nltk.data.find('corpora/stopwords')
+        except LookupError:
+            nltk.download('stopwords')
+        from nltk.corpus import stopwords
+        _stop_words = set(stopwords.words('portuguese'))
+    return _stop_words
 
 # --- Date Filter Setup ---
 END_DATE = datetime.now()
 START_DATE = END_DATE - timedelta(days=45)
+
+# --- Groq (Análise de IA) Setup ---
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # --- Helper Functions ---
 
@@ -62,7 +75,7 @@ def generate_wordcloud(text: str, filepath: str):
         return
 
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    wordcloud = WordCloud(width=800, height=400, background_color='white', stopwords=stop_words).generate(text)
+    wordcloud = WordCloud(width=800, height=400, background_color='white', stopwords=_get_stop_words()).generate(text)
     plt.figure(figsize=(10, 5))
     plt.imshow(wordcloud, interpolation='bilinear')
     plt.axis('off')
@@ -89,7 +102,7 @@ def get_deputy_speeches(deputy_id: int, data_inicio: str = None, data_fim: str =
     """Fetches speeches for a given deputy from the CSV cache, optionally filtered by date."""
     check_cache_files()
     all_speeches = read_csv_data(SPEECHES_FILE)
-    
+
     # Note: The CSV stores deputy IDs as strings
     deputy_id_str = str(deputy_id)
     filtered_speeches = [s for s in all_speeches if s.get('idDeputado') == deputy_id_str]
@@ -97,7 +110,7 @@ def get_deputy_speeches(deputy_id: int, data_inicio: str = None, data_fim: str =
     if data_inicio:
         start_date = datetime.strptime(data_inicio, '%Y-%m-%d')
         filtered_speeches = [s for s in filtered_speeches if datetime.strptime(s['dataHoraInicio'][:10], '%Y-%m-%d') >= start_date]
-    
+
     if data_fim:
         end_date = datetime.strptime(data_fim, '%Y-%m-%d')
         filtered_speeches = [s for s in filtered_speeches if datetime.strptime(s['dataHoraInicio'][:10], '%Y-%m-%d') <= end_date]
@@ -117,7 +130,7 @@ def get_speeches_by_party(sigla: str, data_inicio: str = None, data_fim: str = N
     if data_inicio:
         start_date = datetime.strptime(data_inicio, '%Y-%m-%d')
         party_speeches = [s for s in party_speeches if datetime.strptime(s['dataHoraInicio'][:10], '%Y-%m-%d') >= start_date]
-    
+
     if data_fim:
         end_date = datetime.strptime(data_fim, '%Y-%m-%d')
         party_speeches = [s for s in party_speeches if datetime.strptime(s['dataHoraInicio'][:10], '%Y-%m-%d') <= end_date]
@@ -134,13 +147,13 @@ def get_deputy_details_and_generate_wordcloud(deputy_id: int):
 
     # Use speeches for the word cloud
     deputy_speeches = get_deputy_speeches(deputy_id)
-    
+
     # Combine 'sumario' and 'transcricao' for the text
     text_for_wordcloud = ' '.join([
-        s.get('sumario', '') + ' ' + s.get('transcricao', '') 
+        s.get('sumario', '') + ' ' + s.get('transcricao', '')
         for s in deputy_speeches
     ])
-    
+
     wordcloud_path = os.path.join("cache_perfis", f"wordcloud_{deputy_id}.png")
     if not os.path.exists(wordcloud_path):
         generate_wordcloud(text_for_wordcloud, wordcloud_path)
@@ -151,12 +164,12 @@ def get_deputy_details_and_generate_wordcloud(deputy_id: int):
 def get_party_details_and_generate_wordcloud(sigla: str):
     """Generates a word cloud for a party using speech data from the CSV cache."""
     deputies_in_party = get_deputies_by_party(sigla)
-    
+
     # Use speeches for the word cloud
     party_speeches = get_speeches_by_party(sigla)
-    
+
     text_for_wordcloud = ' '.join([
-        s.get('sumario', '') + ' ' + s.get('transcricao', '') 
+        s.get('sumario', '') + ' ' + s.get('transcricao', '')
         for s in party_speeches
     ])
 
@@ -194,7 +207,7 @@ def get_deputy_speech_counts():
             "urlFoto": deputy.get('urlFoto'),
             "speech_count": speech_counts.get(deputy_id, 0)
         })
-    
+
     return deputy_speech_list
 
 def get_deputy_ranking(order: str = 'most'):
@@ -249,8 +262,86 @@ def get_party_activity_ranking():
 
     # 5. Sort by proportional activity
     sorted_ranking = sorted(party_ranking, key=lambda x: x['media_discursos_por_deputado'], reverse=True)
-    
+
     return sorted_ranking
 
-# The analyze_deputy_profile function is removed as it requires live data and a powerful LLM,
-# which complicates the cached data model. It can be added back if needed with significant changes.
+
+# --- AI Analysis (Groq) ---
+
+def analyze_deputy_profile(deputy_id: int) -> dict:
+    """
+    Gera uma análise em texto do perfil de um deputado com base nos seus
+    discursos mais recentes, usando a API da Groq (modelo Llama).
+    """
+    if not GROQ_API_KEY:
+        logging.error("GROQ_API_KEY não configurada nas variáveis de ambiente.")
+        raise HTTPException(
+            status_code=503,
+            detail="Análise de IA não disponível no momento."
+        )
+
+    all_deputies = get_all_deputies()
+    deputy_details = next((d for d in all_deputies if int(d.get('id', 0)) == deputy_id), None)
+    if not deputy_details:
+        raise HTTPException(status_code=404, detail="Deputy not found.")
+
+    speeches = get_deputy_speeches(deputy_id)
+    if not speeches:
+        raise HTTPException(
+            status_code=404,
+            detail="Este deputado não possui discursos registrados no período analisado."
+        )
+
+    # Usa os 15 discursos mais recentes para não estourar o limite de tokens
+    recent_speeches = speeches[-15:]
+    texto_discursos = "\n\n".join([
+        f"- {s.get('sumario', '') or s.get('transcricao', '')[:500]}"
+        for s in recent_speeches if (s.get('sumario') or s.get('transcricao'))
+    ])
+
+    if not texto_discursos.strip():
+        raise HTTPException(
+            status_code=404,
+            detail="Não há conteúdo textual suficiente nos discursos para gerar uma análise."
+        )
+
+    prompt = (
+        f"Você é um analista político imparcial. Com base nos resumos de discursos abaixo, "
+        f"feitos pelo(a) deputado(a) {deputy_details.get('nome')} ({deputy_details.get('siglaPartido')}-{deputy_details.get('siglaUf')}), "
+        f"escreva uma análise curta (máximo 150 palavras) e neutra sobre os principais temas e "
+        f"posicionamentos abordados. Não invente informações que não estejam nos textos.\n\n"
+        f"Discursos:\n{texto_discursos}"
+    )
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                GROQ_API_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": GROQ_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 400,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            analise_texto = data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logging.error(f"Erro ao chamar a API da Groq para o deputado {deputy_id}: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Análise de IA não disponível no momento."
+        )
+
+    return {
+        "id": deputy_id,
+        "nome": deputy_details.get('nome'),
+        "siglaPartido": deputy_details.get('siglaPartido'),
+        "analise": analise_texto,
+        "baseada_em_discursos": len(recent_speeches),
+    }
