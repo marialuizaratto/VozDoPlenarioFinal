@@ -343,18 +343,17 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
         f"e responda EXCLUSIVAMENTE com um objeto JSON válido (sem markdown, sem texto fora do JSON), "
         f"seguindo exatamente este formato:\n\n"
         f'{{\n'
-        f'  "temas_principais": ["tema 1", "tema 2", "tema 3"],\n'
-        f'  "usa_palavrao": true ou false,\n'
-        f'  "exemplos_linguagem_informal": ["trecho curto, se houver"],\n'
-        f'  "nota_toxicidade": número inteiro de 0 a 100,\n'
-        f'  "justificativa_toxicidade": "explicação curta da nota, em até 2 frases",\n'
-        f'  "analise_detalhada": "análise completa e neutra do perfil do(a) deputado(a) com base nos discursos, em até 200 palavras"\n'
+        f'  "analise": "texto corrido, em até 180 palavras, que descreva os temas/assuntos mais '
+        f'frequentes abordados nos discursos e o tom geral (linguagem formal, agressiva, respeitosa, '
+        f'uso de palavrões, etc.)",\n'
+        f'  "nota_toxicidade": número inteiro de 0 a 100\n'
         f'}}\n\n'
         f"Regras importantes:\n"
-        f"- \"temas_principais\": até 5 temas/assuntos mais recorrentes nos discursos.\n"
-        f"- \"usa_palavrao\": true apenas se houver palavrões ou xingamentos explícitos no texto.\n"
+        f"- \"analise\": comece citando os temas/assuntos mais recorrentes nos discursos, depois comente "
+        f"o tom geral da fala (formal, agressivo, respeitoso, uso de linguagem informal ou palavrões, etc.).\n"
         f"- \"nota_toxicidade\": 0 = discurso sempre respeitoso e institucional; 100 = extremamente agressivo, "
-        f"ofensivo ou desrespeitoso. Avalie o TOM (agressividade, ataques pessoais, desrespeito), não a posição política.\n"
+        f"ofensivo ou desrespeitoso. Avalie o TOM (agressividade, ataques pessoais, desrespeito, uso de "
+        f"palavrões), não a posição política.\n"
         f"- Não invente informações que não estejam nos textos abaixo.\n"
         f"- Seja imparcial: não julgue o mérito político, apenas o conteúdo e o tom.\n\n"
         f"Discursos:\n{texto_discursos}"
@@ -376,7 +375,8 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
                         "model": GROQ_MODEL,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.3,
-                        "max_tokens": 700,
+                        "max_tokens": 2000,
+                        "reasoning_effort": "low",
                         "response_format": {"type": "json_object"},
                     },
                 )
@@ -414,12 +414,8 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
             "id": deputy_id,
             "nome": deputy_details.get('nome'),
             "siglaPartido": deputy_details.get('siglaPartido'),
-            "temas_principais": analise_json.get("temas_principais", []),
-            "usa_palavrao": analise_json.get("usa_palavrao", False),
-            "exemplos_linguagem_informal": analise_json.get("exemplos_linguagem_informal", []),
+            "analise": analise_json.get("analise", ""),
             "nota_toxicidade": analise_json.get("nota_toxicidade"),
-            "justificativa_toxicidade": analise_json.get("justificativa_toxicidade", ""),
-            "analise_detalhada": analise_json.get("analise_detalhada", ""),
             "baseada_em_discursos": len(recent_speeches),
         }
     except (ValueError, AttributeError):
@@ -429,6 +425,7 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
             "nome": deputy_details.get('nome'),
             "siglaPartido": deputy_details.get('siglaPartido'),
             "analise": analise_texto,
+            "nota_toxicidade": None,
             "baseada_em_discursos": len(recent_speeches),
         }
 
