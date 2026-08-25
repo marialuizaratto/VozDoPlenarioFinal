@@ -35,6 +35,63 @@ app.add_middleware(
 os.makedirs("cache_perfis", exist_ok=True)
 os.makedirs("csv_data", exist_ok=True)
 
+@app.get("/debug/groq")
+def debug_groq():
+    """
+    Endpoint temporário de diagnóstico para testar a conexão com a Groq.
+    Não expõe as chaves completas. REMOVER depois de resolver o problema.
+    """
+    import httpx as _httpx
+    keys = {
+        "GROQ_API_KEY_1": os.environ.get("GROQ_API_KEY_1"),
+        "GROQ_API_KEY_2": os.environ.get("GROQ_API_KEY_2"),
+        "GROQ_API_KEY_3": os.environ.get("GROQ_API_KEY_3"),
+    }
+
+    resultado = {}
+    for nome, valor in keys.items():
+        if not valor:
+            resultado[nome] = {"presente": False}
+            continue
+
+        info = {"presente": True, "prefixo": valor[:8]}
+
+        # Testa endpoint de modelos (mais simples, confirma conectividade + autenticação)
+        try:
+            with _httpx.Client(timeout=15.0) as client:
+                r = client.get(
+                    "https://api.groq.com/openai/v1/models",
+                    headers={"Authorization": f"Bearer {valor}"},
+                )
+                info["teste_models_status"] = r.status_code
+                info["teste_models_corpo"] = r.text[:300]
+        except Exception as e:
+            info["teste_models_erro"] = str(e)
+
+        # Testa o endpoint de chat completions de verdade
+        try:
+            with _httpx.Client(timeout=15.0) as client:
+                r = client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {valor}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [{"role": "user", "content": "diga oi"}],
+                    },
+                )
+                info["teste_chat_status"] = r.status_code
+                info["teste_chat_corpo"] = r.text[:300]
+        except Exception as e:
+            info["teste_chat_erro"] = str(e)
+
+        resultado[nome] = info
+
+    return resultado
+
+
 @app.get("/")
 def root():
     return {"message": "API da Câmara dos Deputados - CSV Cache Mode"}
