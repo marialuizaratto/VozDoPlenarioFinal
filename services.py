@@ -36,7 +36,7 @@ def _get_stop_words():
         # significado à nuvem de palavras (jargão, formalidades, verbos
         # genéricos, etc.)
         additional_stopwords = {
-            'obrigado', 'eu', 'sim', 'não', 'colega', 'aqui', 'ali', 'lá', 'obrigada', 'presidente', 'senhor', 'senhora', 'sr', 'sra',
+            'obrigado', 'obrigada', 'presidente', 'senhor', 'senhora', 'sr', 'sra',
             'deputado', 'deputada', 'excelência', 'vossa', 'câmara', 'casa',
             'ele', 'ela', 'eles', 'elas', 'hoje', 'governo', 'menos', 'mais',
             'ano', 'anos', 'ordem', 'orador', 'oradora', 'vai', 'vão', 'foi',
@@ -67,7 +67,7 @@ GROQ_API_KEYS = [
     ] if key
 ]
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 # --- Helper Functions ---
 
@@ -391,7 +391,7 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
                 logging.warning(f"Chave Groq #{i + 1} atingiu o limite de uso, tentando a próxima...")
                 continue
             else:
-                logging.error(f"Erro da API Groq (chave #{i + 1}) para o deputado {deputy_id}: {e.response.status_code} - {e.response.text}")
+                logging.error(f"Erro da API Groq (chave #{i + 1}) para o deputado {deputy_id}: status={e.response.status_code} body={e.response.text}")
                 continue
         except Exception as e:
             last_error = e
