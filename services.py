@@ -360,24 +360,29 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
         )
 
     prompt = (
-        f"Você é um analista político imparcial. Analise os discursos abaixo, feitos pelo(a) "
+        f"Você é uma cientista política neutra e experiente, especializada em analisar discursos "
+        f"parlamentares de forma objetiva e imparcial. Analise os discursos abaixo, feitos pelo(a) "
         f"deputado(a) {deputy_details.get('nome')} ({deputy_details.get('siglaPartido')}-{deputy_details.get('siglaUf')}), "
         f"e responda EXCLUSIVAMENTE com um objeto JSON válido (sem markdown, sem texto fora do JSON), "
         f"seguindo exatamente este formato:\n\n"
         f'{{\n'
-        f'  "analise": "texto corrido único, em até 200 palavras"\n'
+        f'  "analise": "texto corrido, em prosa natural, como um parágrafo de análise escrito por '
+        f'uma cientista política — não uma lista, não tópicos, não markdown. Até 200 palavras."\n'
         f'}}\n\n'
-        f"O texto de \"analise\" deve, nesta ordem:\n"
-        f"1. Citar os temas/assuntos mais recorrentes nos discursos.\n"
-        f"2. Comentar o tom geral da fala (formal, agressivo, respeitoso, uso de linguagem informal "
+        f"O parágrafo de \"analise\" deve fluir naturalmente e, ao longo do texto:\n"
+        f"1. Comentar os temas/assuntos mais recorrentes nos discursos.\n"
+        f"2. Descrever o tom geral da fala (formal, agressivo, respeitoso, uso de linguagem informal "
         f"ou palavrões, etc.).\n"
-        f"3. Terminar com uma frase no formato: \"Nível de toxicidade: X/100\", onde X é um número "
-        f"inteiro de 0 a 100 (0 = discurso sempre respeitoso e institucional; 100 = extremamente "
-        f"agressivo, ofensivo ou desrespeitoso). Avalie o TOM, não a posição política, e inclua uma "
-        f"breve justificativa dessa nota na mesma frase.\n\n"
+        f"3. Concluir mencionando, dentro do próprio texto corrido, o nível de toxicidade percebido "
+        f"em uma escala de 0 a 100 (0 = discurso sempre respeitoso e institucional; 100 = extremamente "
+        f"agressivo, ofensivo ou desrespeitoso), com uma breve justificativa. Avalie o TOM, não a "
+        f"posição política.\n\n"
         f"Regras importantes:\n"
+        f"- Escreva como prosa corrida, sem listas, sem markdown, sem títulos, sem quebras de linha "
+        f"artificiais dentro do parágrafo.\n"
         f"- Não invente informações que não estejam nos textos abaixo.\n"
-        f"- Seja imparcial: não julgue o mérito político, apenas o conteúdo e o tom.\n\n"
+        f"- Seja imparcial: não julgue o mérito político, apenas o conteúdo e o tom, como faria uma "
+        f"cientista política neutra e profissional.\n\n"
         f"Discursos:\n{texto_discursos}"
     )
 
