@@ -38,7 +38,16 @@ END_DATE = datetime.now()
 START_DATE = END_DATE - timedelta(days=45)
 
 # --- Groq (Análise de IA) Setup ---
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+# Suporta múltiplas chaves para revezar entre elas: se uma bater o limite de
+# uso gratuito (rate limit) ou falhar, a próxima é tentada automaticamente.
+GROQ_API_KEYS = [
+    key for key in [
+        os.environ.get("GROQ_API_KEY"),
+        os.environ.get("GROQ_API_KEY_1"),
+        os.environ.get("GROQ_API_KEY_2"),
+        os.environ.get("GROQ_API_KEY_3"),
+    ] if key
+]
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
@@ -273,8 +282,8 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
     Gera uma análise em texto do perfil de um deputado com base nos seus
     discursos mais recentes, usando a API da Groq (modelo Llama).
     """
-    if not GROQ_API_KEY:
-        logging.error("GROQ_API_KEY não configurada nas variáveis de ambiente.")
+    if not GROQ_API_KEYS:
+        logging.error("Nenhuma GROQ_API_KEY configurada nas variáveis de ambiente.")
         raise HTTPException(
             status_code=503,
             detail="Análise de IA não disponível no momento."
@@ -313,26 +322,45 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
         f"Discursos:\n{texto_discursos}"
     )
 
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(
-                GROQ_API_URL,
-                headers={
-                    "Authorization": f"Bearer {GROQ_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": GROQ_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 400,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            analise_texto = data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logging.error(f"Erro ao chamar a API da Groq para o deputado {deputy_id}: {e}")
+    analise_texto = None
+    last_error = None
+
+    for i, api_key in enumerate(GROQ_API_KEYS):
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(
+                    GROQ_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": GROQ_MODEL,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 400,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                analise_texto = data["choices"][0]["message"]["content"].strip()
+                break  # deu certo, não precisa tentar as próximas chaves
+        except httpx.HTTPStatusError as e:
+            last_error = e
+            if e.response.status_code == 429:
+                # Limite de uso atingido nesta chave: tenta a próxima
+                logging.warning(f"Chave Groq #{i + 1} atingiu o limite de uso, tentando a próxima...")
+                continue
+            else:
+                logging.error(f"Erro da API Groq (chave #{i + 1}) para o deputado {deputy_id}: {e}")
+                continue
+        except Exception as e:
+            last_error = e
+            logging.error(f"Erro ao chamar a API da Groq (chave #{i + 1}) para o deputado {deputy_id}: {e}")
+            continue
+
+    if analise_texto is None:
+        logging.error(f"Todas as chaves Groq falharam para o deputado {deputy_id}: {last_error}")
         raise HTTPException(
             status_code=503,
             detail="Análise de IA não disponível no momento."
