@@ -61,7 +61,10 @@ def get_discursos_deputado(
     data_fim: str = Query(None),
 ):
     speeches = get_deputy_speeches(deputy_id, data_inicio, data_fim)
-    return {"total_discursos": len(speeches), "discursos": speeches}
+    response = {"total_discursos": len(speeches), "discursos": speeches}
+    if not speeches:
+        response["mensagem"] = "Este(a) deputado(a) não possui discursos registrados no período analisado."
+    return response
 
 @app.get("/deputados/{deputy_id}/wordcloud")
 def get_wordcloud_deputado(deputy_id: int):
@@ -78,9 +81,12 @@ def get_wordcloud_deputado(deputy_id: int):
         raise HTTPException(status_code=404, detail="Wordcloud could not be generated.")
 
 @app.get("/deputados/{deputy_id}/analise")
+@app.get("/analise/{deputy_id}")
 def get_analise_deputado(deputy_id: int):
     """
     Retorna uma análise de IA (via Groq) sobre os discursos recentes do deputado.
+    Disponível em duas rotas (/deputados/{id}/analise e /analise/{id}) para
+    compatibilidade com o front-end.
     """
     try:
         return analyze_deputy_profile(deputy_id)
@@ -102,7 +108,10 @@ def get_discursos_partido(
     data_fim: str = Query(None),
 ):
     speeches = get_speeches_by_party(sigla, data_inicio, data_fim)
-    return {"partido": sigla, "total_discursos": len(speeches), "discursos": speeches}
+    response = {"partido": sigla, "total_discursos": len(speeches), "discursos": speeches}
+    if not speeches:
+        response["mensagem"] = "Nenhum discurso registrado para este partido no período analisado."
+    return response
 
 @app.get("/partidos/{sigla}/wordcloud")
 def get_wordcloud_partido(sigla: str):
