@@ -36,7 +36,7 @@ def _get_stop_words():
         # significado à nuvem de palavras (jargão, formalidades, verbos
         # genéricos, etc.)
         additional_stopwords = {
-            'obrigado', 'obrigada', 'presidente', 'senhor', 'senhora', 'sr', 'sra',
+            'obrigado', 'eu', 'sim', 'não', 'colega', 'aqui', 'ali', 'lá', 'obrigada', 'presidente', 'senhor', 'senhora', 'sr', 'sra',
             'deputado', 'deputada', 'excelência', 'vossa', 'câmara', 'casa',
             'ele', 'ela', 'eles', 'elas', 'hoje', 'governo', 'menos', 'mais',
             'ano', 'anos', 'ordem', 'orador', 'oradora', 'vai', 'vão', 'foi',
@@ -323,11 +323,12 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
             detail="Este deputado não possui discursos registrados no período analisado."
         )
 
-    # Usa os 15 discursos mais recentes para não estourar o limite de tokens
-    recent_speeches = speeches[-15:]
+    # Usa até 20 discursos mais recentes para dar mais material à análise,
+    # sem estourar o limite de tokens do modelo
+    recent_speeches = speeches[-20:]
     texto_discursos = "\n\n".join([
-        f"- {s.get('sumario', '') or s.get('transcricao', '')[:500]}"
-        for s in recent_speeches if (s.get('sumario') or s.get('transcricao'))
+        f"- {(s.get('transcricao') or s.get('sumario') or '')[:1500]}"
+        for s in recent_speeches if (s.get('transcricao') or s.get('sumario'))
     ])
 
     if not texto_discursos.strip():
@@ -337,10 +338,25 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
         )
 
     prompt = (
-        f"Você é um analista político imparcial. Com base nos resumos de discursos abaixo, "
-        f"feitos pelo(a) deputado(a) {deputy_details.get('nome')} ({deputy_details.get('siglaPartido')}-{deputy_details.get('siglaUf')}), "
-        f"escreva uma análise curta (máximo 150 palavras) e neutra sobre os principais temas e "
-        f"posicionamentos abordados. Não invente informações que não estejam nos textos.\n\n"
+        f"Você é um analista político imparcial. Analise os discursos abaixo, feitos pelo(a) "
+        f"deputado(a) {deputy_details.get('nome')} ({deputy_details.get('siglaPartido')}-{deputy_details.get('siglaUf')}), "
+        f"e responda EXCLUSIVAMENTE com um objeto JSON válido (sem markdown, sem texto fora do JSON), "
+        f"seguindo exatamente este formato:\n\n"
+        f'{{\n'
+        f'  "temas_principais": ["tema 1", "tema 2", "tema 3"],\n'
+        f'  "usa_palavrao": true ou false,\n'
+        f'  "exemplos_linguagem_informal": ["trecho curto, se houver"],\n'
+        f'  "nota_toxicidade": número inteiro de 0 a 100,\n'
+        f'  "justificativa_toxicidade": "explicação curta da nota, em até 2 frases",\n'
+        f'  "analise_detalhada": "análise completa e neutra do perfil do(a) deputado(a) com base nos discursos, em até 200 palavras"\n'
+        f'}}\n\n'
+        f"Regras importantes:\n"
+        f"- \"temas_principais\": até 5 temas/assuntos mais recorrentes nos discursos.\n"
+        f"- \"usa_palavrao\": true apenas se houver palavrões ou xingamentos explícitos no texto.\n"
+        f"- \"nota_toxicidade\": 0 = discurso sempre respeitoso e institucional; 100 = extremamente agressivo, "
+        f"ofensivo ou desrespeitoso. Avalie o TOM (agressividade, ataques pessoais, desrespeito), não a posição política.\n"
+        f"- Não invente informações que não estejam nos textos abaixo.\n"
+        f"- Seja imparcial: não julgue o mérito político, apenas o conteúdo e o tom.\n\n"
         f"Discursos:\n{texto_discursos}"
     )
 
@@ -360,7 +376,8 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
                         "model": GROQ_MODEL,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.3,
-                        "max_tokens": 400,
+                        "max_tokens": 700,
+                        "response_format": {"type": "json_object"},
                     },
                 )
                 response.raise_for_status()
@@ -374,7 +391,7 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
                 logging.warning(f"Chave Groq #{i + 1} atingiu o limite de uso, tentando a próxima...")
                 continue
             else:
-                logging.error(f"Erro da API Groq (chave #{i + 1}) para o deputado {deputy_id}: {e}")
+                logging.error(f"Erro da API Groq (chave #{i + 1}) para o deputado {deputy_id}: {e.response.status_code} - {e.response.text}")
                 continue
         except Exception as e:
             last_error = e
@@ -388,10 +405,31 @@ def analyze_deputy_profile(deputy_id: int) -> dict:
             detail="Análise de IA não disponível no momento."
         )
 
-    return {
-        "id": deputy_id,
-        "nome": deputy_details.get('nome'),
-        "siglaPartido": deputy_details.get('siglaPartido'),
-        "analise": analise_texto,
-        "baseada_em_discursos": len(recent_speeches),
-    }
+    # Tenta interpretar a resposta como JSON estruturado. Se o modelo não
+    # seguir o formato pedido por algum motivo, cai num formato de texto simples.
+    import json as _json
+    try:
+        analise_json = _json.loads(analise_texto)
+        resultado = {
+            "id": deputy_id,
+            "nome": deputy_details.get('nome'),
+            "siglaPartido": deputy_details.get('siglaPartido'),
+            "temas_principais": analise_json.get("temas_principais", []),
+            "usa_palavrao": analise_json.get("usa_palavrao", False),
+            "exemplos_linguagem_informal": analise_json.get("exemplos_linguagem_informal", []),
+            "nota_toxicidade": analise_json.get("nota_toxicidade"),
+            "justificativa_toxicidade": analise_json.get("justificativa_toxicidade", ""),
+            "analise_detalhada": analise_json.get("analise_detalhada", ""),
+            "baseada_em_discursos": len(recent_speeches),
+        }
+    except (ValueError, AttributeError):
+        logging.warning(f"Resposta da Groq para o deputado {deputy_id} não veio em JSON válido. Retornando como texto simples.")
+        resultado = {
+            "id": deputy_id,
+            "nome": deputy_details.get('nome'),
+            "siglaPartido": deputy_details.get('siglaPartido'),
+            "analise": analise_texto,
+            "baseada_em_discursos": len(recent_speeches),
+        }
+
+    return resultado
